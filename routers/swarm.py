@@ -10,7 +10,15 @@ from typing import Optional, Dict, List
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from ams_client import AsyncAMSClient, AMSClient, AMSError
+from agentmem import AgentMemClient, AsyncAgentMemClient, AgentMemError
+from agentmem import (
+    RateLimitError,
+    ServiceUnavailableError,
+    ConflictError,
+    TimeoutError as AMSTimeoutError,
+    ServerError,
+)
+from agentmem import ValidationError as AMSValidationError
 
 router = APIRouter(prefix="/api/swarm", tags=["Swarm Load Tester"])
 
@@ -88,24 +96,23 @@ class SwarmConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Error categorisation
+# Error categorisation — uses SDK exception hierarchy
 # ---------------------------------------------------------------------------
 def _categorize_error(exc: Exception) -> str:
-    if isinstance(exc, AMSError):
-        code = exc.status_code
-        if code == 429:
-            return "rate_limited"
-        if code == 503:
-            return "queue_full"
-        if code == 409:
-            return "conflict"
-        if code == 422:
-            return "validation_error"
-        if code == 408:
-            return "timeout"
-        if 500 <= code < 600:
-            return "server_error"
-        return f"http_{code}"
+    if isinstance(exc, RateLimitError):
+        return "rate_limited"
+    if isinstance(exc, ServiceUnavailableError):
+        return "queue_full"
+    if isinstance(exc, ConflictError):
+        return "conflict"
+    if isinstance(exc, AMSValidationError):
+        return "validation_error"
+    if isinstance(exc, AMSTimeoutError):
+        return "timeout"
+    if isinstance(exc, ServerError):
+        return "server_error"
+    if isinstance(exc, AgentMemError):
+        return f"http_{exc.status_code}" if exc.status_code else "ams_error"
     return "network_error"
 
 
@@ -134,7 +141,6 @@ def _init_run(run_id: str, config: SwarmConfig) -> dict:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
         "elapsed_seconds": None,
-        # throughput counters
         "users_created": 0,
         "sessions_created": 0,
         "messages_sent": 0,
@@ -143,15 +149,11 @@ def _init_run(run_id: str, config: SwarmConfig) -> dict:
         "facts_succeeded": 0,
         "oversized_sent": 0,
         "oversized_rejected": 0,
-        # errors
         "errors_total": 0,
         "errors_by_type": {},
         "recent_errors": [],
-        # latency (ms), capped at 10 000 samples
         "_latency_samples": [],
-        # internal — excluded from status serialisation
         "_logger": _get_run_logger(run_id),
-        # for cleanup
         "user_ids": [],
     }
     swarm_runs[run_id] = run
@@ -163,8 +165,10 @@ def _record_error(run: dict, user_id: str, stage: str, exc: Exception):
     run["errors_total"] += 1
     run["errors_by_type"][category] = run["errors_by_type"].get(category, 0) + 1
     status_code = getattr(exc, "status_code", None)
-    raw_detail = getattr(exc, "detail", None)
-    detail_str = str(raw_detail)[:500] if raw_detail is not None else str(exc)[:500]
+    detail_str = str(getattr(exc, "message", None) or str(exc))[:500]
+    extra = getattr(exc, "details", None)
+    if extra:
+        detail_str = (detail_str + " | " + str(extra))[:500]
     entry = {
         "user_id": user_id[:8],
         "stage": stage,
@@ -185,9 +189,8 @@ def _record_error(run: dict, user_id: str, stage: str, exc: Exception):
 # ---------------------------------------------------------------------------
 async def _send_memory(
     run: dict,
-    ams: AsyncAMSClient,
+    session_resource,
     user_id: str,
-    session_id: str,
     config: SwarmConfig,
     kind: str,
     payload_kwargs: dict,
@@ -197,9 +200,7 @@ async def _send_memory(
     async with semaphore:
         t0 = time.monotonic()
         try:
-            await ams.add_memory(
-                user_id=user_id,
-                session_id=session_id,
+            await session_resource.add_memory(
                 annotations={"agent": "swarm", "run_id": run["run_id"]},
                 async_processing=config.async_processing,
                 context_required=config.context_required,
@@ -218,7 +219,7 @@ async def _send_memory(
             elif kind == "oversized":
                 run["oversized_sent"] += 1
 
-            log.debug(f"  [OK ] add_{kind} | user={user_id[:8]} sess={session_id[:8]} | {elapsed_ms:.0f}ms")
+            log.debug(f"  [OK ] add_{kind} | user={user_id[:8]} | {elapsed_ms:.0f}ms")
 
         except Exception as e:
             if kind == "message":
@@ -236,7 +237,7 @@ async def _send_memory(
 
 async def _simulate_session(
     run: dict,
-    ams: AsyncAMSClient,
+    user_resource,
     user_id: str,
     config: SwarmConfig,
     semaphore: asyncio.Semaphore,
@@ -244,8 +245,7 @@ async def _simulate_session(
     log = run["_logger"]
     session_id = str(uuid.uuid4())
     try:
-        await ams.create_session(
-            user_id=user_id,
+        session = await user_resource.create_session(
             session_id=session_id,
             annotations={"source": "swarm", "run_id": run["run_id"]},
         )
@@ -260,7 +260,7 @@ async def _simulate_session(
     for _ in range(config.messages_per_session):
         q, a = random.choice(TRAVEL_QUERIES)
         tasks.append(_send_memory(
-            run, ams, user_id, session_id, config, "message",
+            run, session, user_id, config, "message",
             {"messages": [{"user_content": q, "assistant_content": a}]},
             semaphore,
         ))
@@ -268,7 +268,7 @@ async def _simulate_session(
     if config.include_facts:
         for _ in range(config.facts_per_session):
             tasks.append(_send_memory(
-                run, ams, user_id, session_id, config, "fact",
+                run, session, user_id, config, "fact",
                 {"facts": [random.choice(TRAVEL_FACTS)]},
                 semaphore,
             ))
@@ -276,7 +276,7 @@ async def _simulate_session(
     if config.include_oversized:
         for _ in range(config.oversized_per_session):
             tasks.append(_send_memory(
-                run, ams, user_id, session_id, config, "oversized",
+                run, session, user_id, config, "oversized",
                 {"messages": [{"user_content": OVERSIZED_PADDING, "assistant_content": "padded " * 200}]},
                 semaphore,
             ))
@@ -288,12 +288,12 @@ async def _simulate_user(
     run: dict,
     user_id: str,
     config: SwarmConfig,
-    ams: AsyncAMSClient,
+    ams: AsyncAgentMemClient,
     semaphore: asyncio.Semaphore,
 ):
     log = run["_logger"]
     try:
-        await ams.create_user(user_id=user_id, name=f"SwarmUser_{user_id[:8]}")
+        user = await ams.create_user(user_id=user_id, name=f"SwarmUser_{user_id[:8]}")
         run["users_created"] += 1
         log.debug(f"  [OK ] create_user | user={user_id[:8]}")
     except Exception as e:
@@ -301,13 +301,13 @@ async def _simulate_user(
         return
 
     session_tasks = [
-        _simulate_session(run, ams, user_id, config, semaphore)
+        _simulate_session(run, user, user_id, config, semaphore)
         for _ in range(config.sessions_per_user)
     ]
     await asyncio.gather(*session_tasks, return_exceptions=True)
 
 
-async def _run_swarm(run: dict, config: SwarmConfig, ams: AsyncAMSClient):
+async def _run_swarm(run: dict, config: SwarmConfig, ams: AsyncAgentMemClient):
     log = run["_logger"]
     cfg = config
     log.info(f"Swarm run started | run_id={run['run_id']}")
@@ -358,7 +358,6 @@ def _build_status(run: dict) -> dict:
         "run_id": run["run_id"],
         "completed": run["completed"],
         "status": run["status"],
-        # config snapshot (flat, for easy UI consumption)
         "num_users": cfg["num_users"],
         "sessions_per_user": cfg["sessions_per_user"],
         "messages_per_session": cfg["messages_per_session"],
@@ -367,11 +366,9 @@ def _build_status(run: dict) -> dict:
         "max_concurrency": cfg["max_concurrency"],
         "include_facts": cfg["include_facts"],
         "include_oversized": cfg["include_oversized"],
-        # timing
         "started_at": run["started_at"],
         "finished_at": run["finished_at"],
         "elapsed_seconds": elapsed,
-        # counters
         "users_created": run["users_created"],
         "sessions_created": run["sessions_created"],
         "messages_sent": run["messages_sent"],
@@ -380,18 +377,14 @@ def _build_status(run: dict) -> dict:
         "facts_succeeded": run["facts_succeeded"],
         "oversized_sent": run["oversized_sent"],
         "oversized_rejected": run["oversized_rejected"],
-        # performance
         "throughput_rps": throughput,
         "latency_p50_ms": _percentile(samples, 50),
         "latency_p95_ms": _percentile(samples, 95),
         "success_rate_pct": success_rate,
-        # log file
         "log_file": run.get("log_file"),
-        # errors
         "errors_total": run["errors_total"],
         "errors_by_type": run["errors_by_type"],
         "recent_errors": run["recent_errors"][-20:],
-        # expected totals
         "total_expected": {
             "users": cfg["num_users"],
             "sessions": cfg["num_users"] * cfg["sessions_per_user"],
@@ -411,7 +404,7 @@ def _build_status(run: dict) -> dict:
 async def launch_swarm(config: SwarmConfig, request: Request):
     run_id = f"swarm-{uuid.uuid4().hex[:10]}"
     run = _init_run(run_id, config)
-    ams: AsyncAMSClient = request.app.state.async_ams_client
+    ams: AsyncAgentMemClient = request.app.state.async_ams_client
     asyncio.create_task(_run_swarm(run, config, ams))
     return {"run_id": run_id, "total_expected": _build_status(run)["total_expected"]}
 
@@ -456,11 +449,12 @@ async def cleanup_swarm_run(run_id: str, request: Request):
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="Cannot cleanup a running swarm")
 
-    ams: AMSClient = request.app.state.ams_client
+    ams: AgentMemClient = request.app.state.ams_client
     deleted, cleanup_errors = 0, []
     for uid in run["user_ids"]:
         try:
-            ams.delete_user(user_id=uid)
+            user = ams.get_user(user_id=uid)
+            user.delete()
             deleted += 1
         except Exception as e:
             cleanup_errors.append({"user_id": uid[:8], "error": str(e)})

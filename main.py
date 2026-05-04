@@ -4,8 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from ams_client import AMSClient, AsyncAMSClient
-from routers import travel, swarm, validation
+from agentmem import AgentMemClient, AsyncAgentMemClient
+
+from routers import travel, swarm, validation, security
 
 load_dotenv()
 
@@ -17,14 +18,15 @@ AMS_TOKEN = os.getenv("AMS_TOKEN", None)
 async def lifespan(app: FastAPI):
     print("Initializing AgentMem Tester...")
 
-    ams_client = AMSClient(base_url=AMS_URL, token=AMS_TOKEN)
-    async_ams_client = AsyncAMSClient(base_url=AMS_URL, token=AMS_TOKEN)
+    ams_client = AgentMemClient(base_url=AMS_URL, token=AMS_TOKEN)
+    async_ams_client = AsyncAgentMemClient(base_url=AMS_URL, token=AMS_TOKEN)
     app.state.ams_client = ams_client
     app.state.async_ams_client = async_ams_client
+    app.state.ams_base_url = AMS_URL
 
     try:
-        health = ams_client.health()
-        print(f"AgentMem Server Status: {health.get('status', 'unknown')}")
+        health = ams_client.health_ping()
+        print(f"AgentMem Server Status: {health.overall_status.value}")
     except Exception as e:
         print(f"WARNING: Failed to connect to AgentMem Server at {AMS_URL}: {e}")
 
@@ -43,7 +45,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,6 +54,7 @@ app.add_middleware(
 app.include_router(travel.router)
 app.include_router(swarm.router)
 app.include_router(validation.router)
+app.include_router(security.router)
 
 
 @app.get("/")
@@ -63,8 +66,8 @@ async def root():
 async def api_health():
     ams_status = "unreachable"
     try:
-        health = app.state.ams_client.health()
-        ams_status = health.get("status", "unknown")
+        health = app.state.ams_client.health_ping()
+        ams_status = health.overall_status.value
     except Exception:
         pass
 

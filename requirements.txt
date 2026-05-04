@@ -3,3 +3,4 @@ uvicorn
 pydantic
 python-dotenv
 httpx
+agentmem @ file:///Users/nishanth.vm/Documents/agent_mem/agentmem-sdk

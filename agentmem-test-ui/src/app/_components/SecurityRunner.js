@@ -4,31 +4,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
 
-const SCENARIO_DESCRIPTIONS = {
-  s01: 'Create, fetch, verify, and delete a user. Verify 404 after deletion.',
-  s02: 'Create/fetch/list session, end it, delete it, verify 404 after deletion.',
-  s03: 'Delete a user with active sessions and verify cascade removal.',
-  s04: 'Add block with async=false/context_required=false; verify immediate searchability.',
-  s05: 'Add block with async=true; verify processing→ready and LLM enrichment.',
-  s06: 'Store h1 and h2 annotated blocks; verify annotation filters under concurrency.',
-  s07: 'Semantic search returns ready blocks; filter-based retrieval returns all.',
-  s08: 'Verify ended sessions reject new memory block additions.',
-  s09: 'Verify duplicate user_id and session_id return 409 Conflict.',
-  s10: 'Verify oversized and malformed blocks are rejected with 4xx.',
-  s11: 'Verify TTL blocks expire; non-TTL blocks persist.',
-  s12: 'SDK gap probe: user.update() — name/metadata update after creation.',
-  s13: 'SDK gap probe: session.update_memory() — in-place block update.',
-  s14: 'SDK gap probe: session.delete_memory(block_ids=[...]) — selective deletion.',
-  s15: 'SDK gap probe: cross-session memory listing via user.list_memories().',
-  s16: 'SDK gap probe: client.search_users() / list_users() — user enumeration.',
-  s17: 'SDK gap probe: pagination params on get_memory() and list_sessions().',
+const CATEGORY_META = {
+  input_validation: { label: 'Input Validation',      color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',  border: 'rgba(245,158,11,0.25)' },
+  isolation:        { label: 'Cross-Tenant Isolation', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)',  border: 'rgba(59,130,246,0.25)' },
+  auth:             { label: 'Auth Boundary',          color: '#ef4444', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)' },
+  mtls:             { label: 'mTLS',                   color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',  border: 'rgba(139,92,246,0.25)' },
 }
 
 function statusColor(status) {
   switch (status) {
-    case 'passed': return 'var(--success)'
-    case 'failed': return 'var(--danger)'
-    case 'error':  return 'var(--danger)'
+    case 'passed':  return 'var(--success)'
+    case 'failed':  return 'var(--danger)'
+    case 'error':   return 'var(--danger)'
+    case 'skipped': return 'var(--text-muted)'
     case 'running': return 'var(--warning)'
     default: return 'var(--text-muted)'
   }
@@ -36,10 +24,9 @@ function statusColor(status) {
 
 function StatusDot({ status, size = 8 }) {
   const color = statusColor(status)
-  const isRunning = status === 'running'
   return (
     <span
-      className={isRunning ? 'pulse-dot' : ''}
+      className={status === 'running' ? 'pulse-dot' : ''}
       style={{
         display: 'inline-block',
         width: size,
@@ -52,7 +39,28 @@ function StatusDot({ status, size = 8 }) {
   )
 }
 
+function CategoryBadge({ category }) {
+  const meta = CATEGORY_META[category] || { label: category, color: 'var(--text-muted)', bg: 'var(--bg-elevated)', border: 'var(--border)' }
+  return (
+    <span style={{
+      fontSize: 9,
+      fontWeight: 700,
+      padding: '2px 6px',
+      borderRadius: 4,
+      background: meta.bg,
+      border: `1px solid ${meta.border}`,
+      color: meta.color,
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      flexShrink: 0,
+    }}>
+      {meta.label}
+    </span>
+  )
+}
+
 function AssertionRow({ a }) {
+  const isSkipped = a.actual === 'skipped'
   return (
     <div style={{
       display: 'flex',
@@ -60,16 +68,16 @@ function AssertionRow({ a }) {
       gap: 8,
       padding: '5px 8px',
       borderRadius: 6,
-      background: a.passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)',
-      border: `1px solid ${a.passed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`,
+      background: isSkipped ? 'rgba(255,255,255,0.03)' : a.passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)',
+      border: `1px solid ${isSkipped ? 'rgba(255,255,255,0.08)' : a.passed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`,
       marginBottom: 4,
     }}>
-      <span style={{ fontSize: 11, fontWeight: 700, color: a.passed ? 'var(--success)' : 'var(--danger)', minWidth: 34, marginTop: 1 }}>
-        {a.passed ? 'PASS' : 'FAIL'}
+      <span style={{ fontSize: 11, fontWeight: 700, color: isSkipped ? 'var(--text-muted)' : a.passed ? 'var(--success)' : 'var(--danger)', minWidth: 34, marginTop: 1 }}>
+        {isSkipped ? 'SKIP' : a.passed ? 'PASS' : 'FAIL'}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>{a.name}</div>
-        {(!a.passed && (a.expected || a.actual)) && (
+        {(!a.passed && !isSkipped && (a.expected || a.actual)) && (
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, fontFamily: 'var(--font-geist-mono)', lineHeight: 1.4 }}>
             expected <span style={{ color: 'var(--success)' }}>{a.expected}</span>
             {' · '}got <span style={{ color: 'var(--danger)' }}>{a.actual}</span>
@@ -84,10 +92,11 @@ function AssertionRow({ a }) {
 function ScenarioCard({ scenario, index }) {
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const { status, name, assertions, error_message, duration_ms, description } = scenario
+  const { status, name, category, assertions, error_message, duration_ms, description } = scenario
 
-  const passCount = assertions.filter(a => a.passed).length
+  const passCount = assertions.filter(a => a.passed && a.actual !== 'skipped').length
   const failCount = assertions.filter(a => !a.passed).length
+  const skipCount = assertions.filter(a => a.actual === 'skipped').length
 
   const isExpandable = assertions.length > 0 || error_message
 
@@ -95,17 +104,15 @@ function ScenarioCard({ scenario, index }) {
     if (status === 'failed' || status === 'error') setExpanded(true)
   }, [status])
 
+  const borderColor =
+    status === 'running' ? 'var(--warning)' :
+    status === 'passed'  ? 'rgba(16,185,129,0.35)' :
+    status === 'skipped' ? 'rgba(255,255,255,0.1)' :
+    status === 'failed' || status === 'error' ? 'rgba(239,68,68,0.35)' :
+    'var(--border)'
+
   return (
-    <div
-      className="card-elevated"
-      style={{
-        borderColor: status === 'running' ? 'var(--warning)' :
-                     status === 'passed'  ? 'rgba(16,185,129,0.35)' :
-                     status === 'failed' || status === 'error' ? 'rgba(239,68,68,0.35)' :
-                     'var(--border)',
-        transition: 'border-color 0.2s',
-      }}
-    >
+    <div className="card-elevated" style={{ borderColor, transition: 'border-color 0.2s' }}>
       <div
         style={{
           display: 'flex',
@@ -121,16 +128,24 @@ function ScenarioCard({ scenario, index }) {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', minWidth: 28 }}>
-          {String(index + 1).padStart(2, '0')}
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', minWidth: 40 }}>
+          {scenario.id}
         </span>
         <StatusDot status={status} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.3 }}>{description}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{name}</span>
+            <CategoryBadge category={category} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>{description}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          {assertions.length > 0 && (
+          {skipCount > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <span style={{ color: 'var(--text-muted)' }}>{skipCount} skipped</span>
+            </span>
+          )}
+          {assertions.length > 0 && skipCount === 0 && (
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               <span style={{ color: 'var(--success)' }}>{passCount}</span>
               {failCount > 0 && <span style={{ color: 'var(--danger)' }}>/{failCount} fail</span>}
@@ -147,7 +162,7 @@ function ScenarioCard({ scenario, index }) {
             fontWeight: 700,
             color: statusColor(status),
             textTransform: 'uppercase',
-            minWidth: 50,
+            minWidth: 54,
             textAlign: 'right',
           }}>
             {status === 'pending' ? '—' : status}
@@ -176,20 +191,44 @@ function ScenarioCard({ scenario, index }) {
   )
 }
 
-function SummaryBar({ summary, status }) {
+function CategoryGroup({ categoryKey, scenarios }) {
+  const meta = CATEGORY_META[categoryKey] || { label: categoryKey, color: 'var(--text-muted)' }
+  const passCount = scenarios.filter(s => s.status === 'passed').length
+  const failCount = scenarios.filter(s => s.status === 'failed' || s.status === 'error').length
+  const skipCount = scenarios.filter(s => s.status === 'skipped').length
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+        <div style={{ width: 3, height: 16, borderRadius: 2, background: meta.color, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {meta.label}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          {passCount > 0 && <span style={{ color: 'var(--success)' }}>{passCount} pass </span>}
+          {failCount > 0 && <span style={{ color: 'var(--danger)' }}>{failCount} fail </span>}
+          {skipCount > 0 && <span>{skipCount} skipped</span>}
+        </span>
+      </div>
+      {scenarios.map((s, i) => <ScenarioCard key={s.id} scenario={s} index={i} />)}
+    </div>
+  )
+}
+
+function SummaryBar({ summary }) {
   const total = summary?.total || 0
   const passed = summary?.passed || 0
+  const skipped = summary?.skipped || 0
   const failed = summary?.failed || 0
-  const pending = total - passed - failed
-  const pct = total > 0 ? Math.round((passed / total) * 100) : 0
-
+  const effective = total - skipped
+  const pct = effective > 0 ? Math.round((passed / effective) * 100) : (total > 0 ? 100 : 0)
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
       {[
-        { label: 'Total', value: total, color: 'var(--text-primary)' },
-        { label: 'Passed', value: passed, color: 'var(--success)' },
-        { label: 'Failed', value: failed, color: 'var(--danger)' },
-        { label: 'Pass Rate', value: total > 0 ? `${pct}%` : '—', color: pct === 100 && total > 0 ? 'var(--success)' : pct > 50 ? 'var(--warning)' : 'var(--danger)' },
+        { label: 'Total',   value: total,   color: 'var(--text-primary)' },
+        { label: 'Passed',  value: passed,  color: 'var(--success)' },
+        { label: 'Failed',  value: failed,  color: failed > 0 ? 'var(--danger)' : 'var(--text-muted)' },
+        { label: 'Skipped', value: skipped, color: 'var(--text-muted)' },
+        { label: 'Pass Rate', value: effective > 0 ? `${pct}%` : '—', color: pct === 100 && effective > 0 ? 'var(--success)' : pct > 50 ? 'var(--warning)' : 'var(--danger)' },
       ].map(item => (
         <div className="stat-card" key={item.label} style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 24, fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.value}</div>
@@ -200,24 +239,20 @@ function SummaryBar({ summary, status }) {
   )
 }
 
-export default function ValidationRunner() {
+export default function SecurityRunner() {
   const [activeRun, setActiveRun] = useState(null)
   const [pastRuns, setPastRuns] = useState([])
   const [launching, setLaunching] = useState(false)
-  const [skipCleanup, setSkipCleanup] = useState(false)
   const [error, setError] = useState(null)
   const pollRef = useRef(null)
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current)
-      pollRef.current = null
-    }
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null }
   }, [])
 
   const poll = useCallback(async (runId) => {
     try {
-      const resp = await fetch(`${API}/api/validation/status/${runId}`)
+      const resp = await fetch(`${API}/api/security/status/${runId}`)
       if (!resp.ok) return
       const data = await resp.json()
       setActiveRun(data)
@@ -234,7 +269,7 @@ export default function ValidationRunner() {
 
   const fetchPastRuns = useCallback(async () => {
     try {
-      const resp = await fetch(`${API}/api/validation/runs`)
+      const resp = await fetch(`${API}/api/security/runs`)
       if (resp.ok) setPastRuns(await resp.json())
     } catch {}
   }, [])
@@ -249,10 +284,10 @@ export default function ValidationRunner() {
     setError(null)
     stopPolling()
     try {
-      const resp = await fetch(`${API}/api/validation/launch`, {
+      const resp = await fetch(`${API}/api/security/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skip_cleanup: skipCleanup }),
+        body: JSON.stringify({}),
       })
       if (!resp.ok) throw new Error(`Launch failed: ${resp.status}`)
       const { run_id } = await resp.json()
@@ -267,7 +302,7 @@ export default function ValidationRunner() {
   async function loadRun(runId) {
     stopPolling()
     try {
-      const resp = await fetch(`${API}/api/validation/status/${runId}`)
+      const resp = await fetch(`${API}/api/security/status/${runId}`)
       if (resp.ok) {
         const data = await resp.json()
         setActiveRun(data)
@@ -279,7 +314,7 @@ export default function ValidationRunner() {
   async function deleteRun(runId, e) {
     e.stopPropagation()
     try {
-      await fetch(`${API}/api/validation/runs/${runId}`, { method: 'DELETE' })
+      await fetch(`${API}/api/security/runs/${runId}`, { method: 'DELETE' })
       if (activeRun?.run_id === runId) setActiveRun(null)
       fetchPastRuns()
     } catch {}
@@ -293,21 +328,38 @@ export default function ValidationRunner() {
     ? Math.round((scenarios.filter(s => s.status !== 'pending').length / scenarios.length) * 100)
     : 0
 
+  // Group scenarios by category in display order
+  const CATEGORY_ORDER = ['input_validation', 'isolation', 'auth', 'mtls']
+  const grouped = CATEGORY_ORDER.map(cat => ({
+    key: cat,
+    scenarios: scenarios.filter(s => s.category === cat),
+  })).filter(g => g.scenarios.length > 0)
+
+  const oidcEnabled = activeRun?.oidc_enabled ?? false
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: '100%' }}>
-      {/* Header controls */}
+      {/* Header */}
       <div className="card" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Validation Suite</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Security Test Suite</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-              {Object.keys(SCENARIO_DESCRIPTIONS).length} scenarios · sequential · isolated cleanup
+              11 scenarios · input validation, tenant isolation, auth boundary
+              {activeRun && (
+                <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                  background: oidcEnabled ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.05)',
+                  color: oidcEnabled ? 'var(--danger)' : 'var(--text-muted)',
+                  border: `1px solid ${oidcEnabled ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.1)'}`,
+                  textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>
+                  OIDC {oidcEnabled ? 'ON' : 'OFF'}
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            {error && (
-              <span style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</span>
-            )}
+            {error && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</span>}
             {isRunning && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div className="spinner" style={{ width: 16, height: 16 }} />
@@ -316,25 +368,13 @@ export default function ValidationRunner() {
                 </span>
               </div>
             )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
-              <input
-                type="checkbox"
-                checked={skipCleanup}
-                onChange={e => setSkipCleanup(e.target.checked)}
-                disabled={isRunning || launching}
-                style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer' }}
-              />
-              <span style={{ fontSize: 12, color: skipCleanup ? 'var(--warning)' : 'var(--text-muted)' }}>
-                Keep test data
-              </span>
-            </label>
             <button
               className="btn-primary"
               onClick={launchRun}
               disabled={isRunning || launching}
-              style={{ minWidth: 130 }}
+              style={{ minWidth: 140, background: 'linear-gradient(135deg, #dc2626, #991b1b)' }}
             >
-              {launching ? 'Launching…' : isRunning ? 'Running…' : '▶  Run All Tests'}
+              {launching ? 'Launching…' : isRunning ? 'Running…' : '▶  Run Security Tests'}
             </button>
           </div>
         </div>
@@ -371,7 +411,10 @@ export default function ValidationRunner() {
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {run.summary?.passed ?? 0}/{run.summary?.total ?? 0} passed
+                      {run.summary?.passed ?? 0}p
+                      {(run.summary?.skipped ?? 0) > 0 && ` · ${run.summary.skipped}s`}
+                      {(run.summary?.failed ?? 0) > 0 && <span style={{ color: 'var(--danger)' }}> · {run.summary.failed}f</span>}
+                      {' / '}{run.summary?.total ?? 0}
                     </div>
                   </div>
                   <button
@@ -384,6 +427,7 @@ export default function ValidationRunner() {
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
                   {new Date(run.started_at).toLocaleTimeString()}
+                  {run.oidc_enabled && <span style={{ marginLeft: 6, color: 'var(--danger)' }}>OIDC</span>}
                 </div>
               </div>
             ))}
@@ -394,28 +438,31 @@ export default function ValidationRunner() {
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {!activeRun ? (
             <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-              <div style={{ fontSize: 40 }}>🧪</div>
+              <div style={{ fontSize: 40 }}>🔒</div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>No active run</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 340 }}>
-                  Launch a validation run to test all fundamental AMS layers. Each scenario runs sequentially, creates isolated data, and cleans up after itself.
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 380 }}>
+                  Run security tests to validate input handling, tenant isolation, and auth boundaries. Auth scenarios auto-skip when OIDC is disabled.
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 400 }}>
-                {Object.entries(SCENARIO_DESCRIPTIONS).map(([id, desc], i) => (
-                  <div key={id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '6px 10px', borderRadius: 6, background: 'var(--bg-elevated)' }}>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', minWidth: 24, marginTop: 1 }}>{id}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{desc}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 480 }}>
+                {Object.entries(CATEGORY_META).map(([key, meta]) => (
+                  <div key={key} style={{ borderRadius: 8, border: `1px solid ${meta.border}`, background: meta.bg, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: meta.color, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{meta.label}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {key === 'input_validation' && 'Injection, path traversal, XSS, oversized IDs, special characters (SEC-01–05)'}
+                      {key === 'isolation' && 'Session path isolation, memory read isolation, cross-delete data integrity (SEC-06–08)'}
+                      {key === 'auth' && 'No-token, malformed/HS256/wrong-realm token, expired JWT — auto-skipped when OIDC is off (SEC-09–14)'}
+                      {key === 'mtls' && 'Couchbase mTLS connectivity smoke — auto-skipped unless AMS_MTLS_ENABLED=true (SEC-15)'}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
             <>
-              {/* Summary stats */}
-              <SummaryBar summary={activeRun.summary} status={activeRun.status} />
+              <SummaryBar summary={activeRun.summary} />
 
-              {/* Progress bar */}
               {isRunning && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -423,15 +470,14 @@ export default function ValidationRunner() {
                     <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-geist-mono)' }}>{progressPct}%</span>
                   </div>
                   <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${progressPct}%` }} />
+                    <div className="progress-fill" style={{ width: `${progressPct}%`, background: 'linear-gradient(90deg, #dc2626, #f59e0b)' }} />
                   </div>
                 </div>
               )}
 
-              {/* Scenarios list */}
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {scenarios.map((s, i) => (
-                  <ScenarioCard key={s.id} scenario={s} index={i} />
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {grouped.map(g => (
+                  <CategoryGroup key={g.key} categoryKey={g.key} scenarios={g.scenarios} />
                 ))}
               </div>
             </>

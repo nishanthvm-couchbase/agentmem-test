@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 
-const API = 'http://127.0.0.1:8000'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
 
 export default function TravelHub() {
   const [userId, setUserId] = useState('demo-user-001')

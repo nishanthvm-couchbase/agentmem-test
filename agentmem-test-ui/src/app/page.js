@@ -4,13 +4,15 @@ import React, { useState, useEffect, useCallback } from 'react'
 import TravelHub from './_components/TravelHub'
 import ValidationRunner from './_components/ValidationRunner'
 import SwarmTester from './_components/SwarmTester'
+import SecurityRunner from './_components/SecurityRunner'
 
-const API = 'http://127.0.0.1:8000'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
 
 const NAV = [
   { id: 'travel',     label: 'Travel Hub',     icon: IconTravel,     desc: 'Interactive agent memory sandbox' },
   { id: 'validation', label: 'Validation',     icon: IconValidation, desc: 'Assertion-based AMS test suite' },
   { id: 'swarm',      label: 'Swarm Tester',   icon: IconSwarm,      desc: 'Concurrent load & volume testing' },
+  { id: 'security',   label: 'Security',       icon: IconSecurity,   desc: 'Input validation, isolation & auth boundary' },
   { id: 'chaos',      label: 'Chaos Injector', icon: IconChaos,      desc: 'Resilience & fault injection', soon: true },
 ]
 
@@ -220,6 +222,7 @@ export default function Home() {
           {section === 'travel' && <TravelHub />}
           {section === 'validation' && <ValidationRunner />}
           {section === 'swarm' && <SwarmTester />}
+          {section === 'security' && <SecurityRunner />}
           {section === 'chaos' && <ChaosComing />}
         </div>
       </main>
@@ -303,6 +306,15 @@ function IconSwarm({ size = 16 }) {
       <circle cx="13" cy="8" r="1.5"/>
       <circle cx="8" cy="13" r="1.5"/>
       <path d="M4.5 8h3m1.5-3.5v3m1.5 1.5h-3m-1.5 1.5v-3"/>
+    </svg>
+  )
+}
+
+function IconSecurity({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 1.5L3 3.5v4c0 3 2.5 5.5 5 6.5 2.5-1 5-3.5 5-6.5v-4L8 1.5z"/>
+      <path d="M5.5 8l2 2 3-3"/>
     </svg>
   )
 }
