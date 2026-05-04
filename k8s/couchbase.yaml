@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: couchbase-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gp2
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: couchbase
+spec:
+  serviceName: couchbase
+  replicas: 1
+  selector:
+    matchLabels:
+      app: couchbase
+  template:
+    metadata:
+      labels:
+        app: couchbase
+    spec:
+      nodeSelector:
+        role: couchbase
+      containers:
+      - name: couchbase
+        image: couchbase:enterprise-8.0.0
+        ports:
+        - containerPort: 8091
+        - containerPort: 8092
+        - containerPort: 8093
+        - containerPort: 8094
+        - containerPort: 11210
+        volumeMounts:
+        - name: data
+          mountPath: /opt/couchbase/var
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: couchbase-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: couchbase
+spec:
+  selector:
+    app: couchbase
+  ports:
+  - name: web
+    port: 8091
+    targetPort: 8091
+  - name: views
+    port: 8092
+    targetPort: 8092
+  - name: query
+    port: 8093
+    targetPort: 8093
+  - name: fts
+    port: 8094
+    targetPort: 8094
+  - name: sdk
+    port: 11210
+    targetPort: 11210
