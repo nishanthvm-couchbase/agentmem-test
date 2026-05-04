@@ -20,8 +20,8 @@ metadata:
   name: agentmem-secrets
 type: Opaque
 stringData:
-  AGENTMEM_USERNAME: "Administrator"
-  AGENTMEM_PASSWORD: "password"
+  AGENTMEM_USERNAME: ""
+  AGENTMEM_PASSWORD: ""
   OPENAI_API_KEY: ""
 ---
 apiVersion: apps/v1
