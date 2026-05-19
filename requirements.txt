@@ -3,4 +3,5 @@ uvicorn
 pydantic
 python-dotenv
 httpx
+openai
 agentmem @ file:///Users/nishanth.vm/Documents/agent_mem/agentmem-sdk

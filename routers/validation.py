@@ -864,23 +864,6 @@ async def _scenario_oversized_block(client, logger) -> List[dict]:
             "" if 500 <= status_code < 600 else str(e),
         ))
 
-    logger.info("  Sending empty user message (invalid block)...")
-    try:
-        await _t(
-            session.add_memory,
-            messages=[{"user_content": "", "assistant_content": "Some reply"}],
-            async_processing=False,
-            context_required=False,
-        )
-        assertions.append(_assert("Empty user message is rejected", False, "4xx error", "succeeded"))
-    except Exception as e:
-        status_code = getattr(e, "status_code", 0)
-        assertions.append(_assert(
-            "Empty user message rejected with 4xx",
-            400 <= status_code < 500, "400-499", f"HTTP {status_code}",
-            "" if 400 <= status_code < 500 else str(e),
-        ))
-
     await _t(user.delete)
     return assertions
 

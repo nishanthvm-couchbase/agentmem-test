@@ -12,14 +12,15 @@ load_dotenv()
 
 AMS_URL = os.getenv("AMS_URL", "http://localhost:8080")
 AMS_TOKEN = os.getenv("AMS_TOKEN", None)
+AMS_TIMEOUT = float(os.getenv("AMS_TIMEOUT", "30.0"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Initializing AgentMem Tester...")
 
-    ams_client = AgentMemClient(base_url=AMS_URL, token=AMS_TOKEN)
-    async_ams_client = AsyncAgentMemClient(base_url=AMS_URL, token=AMS_TOKEN)
+    ams_client = AgentMemClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
+    async_ams_client = AsyncAgentMemClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
     app.state.ams_client = ams_client
     app.state.async_ams_client = async_ams_client
     app.state.ams_base_url = AMS_URL

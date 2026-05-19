@@ -165,7 +165,9 @@ def _record_error(run: dict, user_id: str, stage: str, exc: Exception):
     run["errors_total"] += 1
     run["errors_by_type"][category] = run["errors_by_type"].get(category, 0) + 1
     status_code = getattr(exc, "status_code", None)
-    detail_str = str(getattr(exc, "message", None) or str(exc))[:500]
+    exc_type = type(exc).__name__
+    raw_msg = str(getattr(exc, "message", None) or str(exc) or repr(exc))
+    detail_str = f"{exc_type}: {raw_msg}"[:500]
     extra = getattr(exc, "details", None)
     if extra:
         detail_str = (detail_str + " | " + str(extra))[:500]
@@ -245,10 +247,11 @@ async def _simulate_session(
     log = run["_logger"]
     session_id = str(uuid.uuid4())
     try:
-        session = await user_resource.create_session(
-            session_id=session_id,
-            annotations={"source": "swarm", "run_id": run["run_id"]},
-        )
+        async with semaphore:
+            session = await user_resource.create_session(
+                session_id=session_id,
+                annotations={"source": "swarm", "run_id": run["run_id"]},
+            )
         run["sessions_created"] += 1
         log.debug(f"  [OK ] create_session | user={user_id[:8]} sess={session_id[:8]}")
     except Exception as e:
@@ -293,7 +296,8 @@ async def _simulate_user(
 ):
     log = run["_logger"]
     try:
-        user = await ams.create_user(user_id=user_id, name=f"SwarmUser_{user_id[:8]}")
+        async with semaphore:
+            user = await ams.create_user(user_id=user_id, name=f"SwarmUser_{user_id[:8]}")
         run["users_created"] += 1
         log.debug(f"  [OK ] create_user | user={user_id[:8]}")
     except Exception as e:
