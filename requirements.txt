@@ -4,4 +4,4 @@ pydantic
 python-dotenv
 httpx
 openai
-agentmem @ file:///Users/nishanth.vm/Documents/agent_mem/agentmem-sdk
+couchbase-agent-memory @ file:///Users/nishanth.vm/Documents/agent_mem/agentmem-sdk

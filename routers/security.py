@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from agentmem import AgentMemClient, AgentMemError
+from agentmemory import AgentMemoryClient, AgentMemoryError
 
 router = APIRouter()
 security_runs: Dict[str, dict] = {}
@@ -457,7 +457,7 @@ async def _sec09_no_token(client, logger, base_url: str) -> List[dict]:
         return [_assert("No-token rejection (OIDC_AUTH_ENABLED=false — auto-skipped)", True, "skipped", "skipped")]
     assertions = []
     try:
-        unauthed = AgentMemClient(base_url=base_url)
+        unauthed = AgentMemoryClient(base_url=base_url)
         await _t(unauthed.create_user, user_id=_uid("sec09"), name="Auth test")
         assertions.append(_assert("No-token request rejected", False, "401 Unauthorized", "succeeded"))
         unauthed.close()
@@ -484,7 +484,7 @@ async def _sec10_malformed_token(client, logger, base_url: str) -> List[dict]:
         ("garbage-chars",  "!!@@##$$%%^^&&**"),
     ]:
         try:
-            bad_client = AgentMemClient(base_url=base_url, token=bad_token)
+            bad_client = AgentMemoryClient(base_url=base_url, token=bad_token)
             await _t(bad_client.create_user, user_id=_uid("sec10"), name="Auth test")
             assertions.append(_assert(f"{label}: rejected", False, "401", "succeeded"))
             bad_client.close()
@@ -512,7 +512,7 @@ async def _sec11_wrong_signature_jwt(client, logger, base_url: str) -> List[dict
         ".INVALIDSIGNATUREINVALIDSIGNATUREINVALIDSIGNATURE"
     )
     try:
-        bad_client = AgentMemClient(base_url=base_url, token=fake_jwt)
+        bad_client = AgentMemoryClient(base_url=base_url, token=fake_jwt)
         await _t(bad_client.create_user, user_id=_uid("sec11"), name="Auth test")
         assertions.append(_assert("Wrong-signature JWT rejected", False, "401", "succeeded"))
         bad_client.close()
@@ -544,7 +544,7 @@ async def _sec12_algorithm_confusion(client, logger, base_url: str) -> List[dict
         ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
     )
     try:
-        bad_client = AgentMemClient(base_url=base_url, token=hs256_token)
+        bad_client = AgentMemoryClient(base_url=base_url, token=hs256_token)
         await _t(bad_client.create_user, user_id=_uid("sec12"), name="Alg confusion test")
         assertions.append(_assert("HS256 token rejected", False, "401 Unauthorized", "succeeded (accepted HS256)"))
         bad_client.close()
@@ -572,7 +572,7 @@ async def _sec13_wrong_realm_jwt(client, logger, base_url: str) -> List[dict]:
         ".INVALIDSIGNATURE"
     )
     try:
-        bad_client = AgentMemClient(base_url=base_url, token=wrong_realm_jwt)
+        bad_client = AgentMemoryClient(base_url=base_url, token=wrong_realm_jwt)
         await _t(bad_client.create_user, user_id=_uid("sec13"), name="Wrong realm test")
         assertions.append(_assert("Wrong-realm JWT rejected", False, "401 Unauthorized", "succeeded"))
         bad_client.close()
@@ -608,7 +608,7 @@ async def _sec14_expired_token(client, logger, base_url: str) -> List[dict]:
 
     assertions = []
     try:
-        bad_client = AgentMemClient(base_url=base_url, token=expired_token)
+        bad_client = AgentMemoryClient(base_url=base_url, token=expired_token)
         await _t(bad_client.create_user, user_id=_uid("sec14"), name="Expired token test")
         assertions.append(_assert("Expired token rejected", False, "401 Unauthorized", "succeeded (accepted expired token)"))
         bad_client.close()

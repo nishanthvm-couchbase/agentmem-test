@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from agentmem import AgentMemClient
+from agentmemory import AgentMemoryClient
 
 router = APIRouter()
 

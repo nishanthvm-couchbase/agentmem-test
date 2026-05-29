@@ -10,15 +10,15 @@ from typing import Optional, Dict, List
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from agentmem import AgentMemClient, AsyncAgentMemClient, AgentMemError
-from agentmem import (
+from agentmemory import AgentMemoryClient, AsyncAgentMemoryClient, AgentMemoryError
+from agentmemory import (
     RateLimitError,
     ServiceUnavailableError,
     ConflictError,
     TimeoutError as AMSTimeoutError,
     ServerError,
 )
-from agentmem import ValidationError as AMSValidationError
+from agentmemory import ValidationError as AMSValidationError
 
 router = APIRouter(prefix="/api/swarm", tags=["Swarm Load Tester"])
 
@@ -111,7 +111,7 @@ def _categorize_error(exc: Exception) -> str:
         return "timeout"
     if isinstance(exc, ServerError):
         return "server_error"
-    if isinstance(exc, AgentMemError):
+    if isinstance(exc, AgentMemoryError):
         return f"http_{exc.status_code}" if exc.status_code else "ams_error"
     return "network_error"
 
@@ -291,7 +291,7 @@ async def _simulate_user(
     run: dict,
     user_id: str,
     config: SwarmConfig,
-    ams: AsyncAgentMemClient,
+    ams: AsyncAgentMemoryClient,
     semaphore: asyncio.Semaphore,
 ):
     log = run["_logger"]
@@ -311,7 +311,7 @@ async def _simulate_user(
     await asyncio.gather(*session_tasks, return_exceptions=True)
 
 
-async def _run_swarm(run: dict, config: SwarmConfig, ams: AsyncAgentMemClient):
+async def _run_swarm(run: dict, config: SwarmConfig, ams: AsyncAgentMemoryClient):
     log = run["_logger"]
     cfg = config
     log.info(f"Swarm run started | run_id={run['run_id']}")
@@ -408,7 +408,7 @@ def _build_status(run: dict) -> dict:
 async def launch_swarm(config: SwarmConfig, request: Request):
     run_id = f"swarm-{uuid.uuid4().hex[:10]}"
     run = _init_run(run_id, config)
-    ams: AsyncAgentMemClient = request.app.state.async_ams_client
+    ams: AsyncAgentMemoryClient = request.app.state.async_ams_client
     asyncio.create_task(_run_swarm(run, config, ams))
     return {"run_id": run_id, "total_expected": _build_status(run)["total_expected"]}
 
@@ -453,7 +453,7 @@ async def cleanup_swarm_run(run_id: str, request: Request):
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="Cannot cleanup a running swarm")
 
-    ams: AgentMemClient = request.app.state.ams_client
+    ams: AgentMemoryClient = request.app.state.ams_client
     deleted, cleanup_errors = 0, []
     for uid in run["user_ids"]:
         try:

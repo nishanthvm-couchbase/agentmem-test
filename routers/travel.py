@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, List
 from openai import OpenAI
 
-from agentmem import AgentMemClient, AgentMemError
+from agentmemory import AgentMemoryClient, AgentMemoryError
 
 router = APIRouter(prefix="/api/travel", tags=["Travel App Hub"])
 
@@ -48,7 +48,7 @@ class ChatRequest(BaseModel):
     context_blocks: Optional[List[str]] = None  # pre-fetched snippets; skips auto-recall when provided
 
 
-def _get_ams(request: Request) -> AgentMemClient:
+def _get_ams(request: Request) -> AgentMemoryClient:
     return request.app.state.ams_client
 
 
@@ -69,7 +69,7 @@ async def create_traveler(user: UserCreate, request: Request):
             metadata=user.preferences,
         )
         return {"status": "success", "user_id": result.user_id}
-    except AgentMemError as e:
+    except AgentMemoryError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -86,7 +86,7 @@ async def start_travel_session(user_id: str, session_data: SessionCreate, reques
             metadata={"domain": "travel"},
         )
         return {"status": "success", "session_id": session.session_id}
-    except AgentMemError as e:
+    except AgentMemoryError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -107,7 +107,7 @@ async def chat_with_agent(user_id: str, session_id: str, memory: MemoryAdd, requ
             async_processing=True,
         )
         return {"status": "success", "blocks_added": result.accepted_count}
-    except AgentMemError as e:
+    except AgentMemoryError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -178,7 +178,7 @@ async def list_memories(user_id: str, session_id: str, request: Request):
             elif block.summary:
                 blocks.append({"type": "summary", "content": block.summary})
         return {"blocks": blocks, "total": result.total}
-    except AgentMemError as e:
+    except AgentMemoryError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -243,7 +243,7 @@ async def recall_context(user_id: str, session_id: str, query_data: MemoryQuery,
                 })
 
         return {"status": "success", "retrieved_context": context, "blocks": blocks, "total": len(blocks)}
-    except AgentMemError as e:
+    except AgentMemoryError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

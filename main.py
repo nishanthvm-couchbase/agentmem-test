@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from agentmem import AgentMemClient, AsyncAgentMemClient
+from agentmemory import AgentMemoryClient, AsyncAgentMemoryClient
 
 from routers import travel, swarm, validation, security
 
@@ -19,8 +19,8 @@ AMS_TIMEOUT = float(os.getenv("AMS_TIMEOUT", "30.0"))
 async def lifespan(app: FastAPI):
     print("Initializing AgentMem Tester...")
 
-    ams_client = AgentMemClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
-    async_ams_client = AsyncAgentMemClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
+    ams_client = AgentMemoryClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
+    async_ams_client = AsyncAgentMemoryClient(base_url=AMS_URL, token=AMS_TOKEN, timeout=AMS_TIMEOUT)
     app.state.ams_client = ams_client
     app.state.async_ams_client = async_ams_client
     app.state.ams_base_url = AMS_URL
