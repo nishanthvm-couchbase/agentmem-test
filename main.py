@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from agentmemory import AgentMemoryClient, AsyncAgentMemoryClient
 
-from routers import travel, swarm, validation, security
+from routers import travel, swarm, validation, security, explorer
 
 load_dotenv()
 
@@ -56,6 +56,7 @@ app.include_router(travel.router)
 app.include_router(swarm.router)
 app.include_router(validation.router)
 app.include_router(security.router)
+app.include_router(explorer.router)
 
 
 @app.get("/")

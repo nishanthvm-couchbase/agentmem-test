@@ -204,7 +204,7 @@ export default function TravelHub() {
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      height: '100vh',
+      height: '100%',
       background: 'linear-gradient(160deg, #F8F9FB 0%, #FFFFFF 50%, #F4F6F9 100%)',
       fontFamily: 'var(--font-geist-sans), system-ui, sans-serif',
       color: 'var(--text-primary)',
